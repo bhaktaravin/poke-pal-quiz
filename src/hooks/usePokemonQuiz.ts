@@ -17,6 +17,7 @@ interface QuizState {
   hasAnswered: boolean;
   selectedAnswer: string | null;
   isCorrect: boolean | null;
+  usedPokemonIds: number[];
 }
 
 const MAX_POKEMON_ID = 151; // Original 151 (Gen 1)
@@ -51,6 +52,7 @@ export const usePokemonQuiz = () => {
     hasAnswered: false,
     selectedAnswer: null,
     isCorrect: null,
+    usedPokemonIds: [],
   });
 
   const fetchPokemon = async (id: number): Promise<Pokemon> => {
@@ -67,8 +69,18 @@ export const usePokemonQuiz = () => {
     setState(prev => ({ ...prev, isLoading: true, hasAnswered: false, selectedAnswer: null, isCorrect: null }));
 
     try {
-      // Get random Pokemon IDs for the question
-      const correctId = Math.floor(Math.random() * MAX_POKEMON_ID) + 1;
+      // Get available Pokemon IDs (not yet used)
+      let availableIds = Array.from({ length: MAX_POKEMON_ID }, (_, i) => i + 1)
+        .filter(id => !state.usedPokemonIds.includes(id));
+      
+      // If all Pokemon have been used, reset the pool
+      if (availableIds.length === 0) {
+        availableIds = Array.from({ length: MAX_POKEMON_ID }, (_, i) => i + 1);
+        setState(prev => ({ ...prev, usedPokemonIds: [] }));
+      }
+
+      // Pick a random Pokemon from available ones
+      const correctId = availableIds[Math.floor(Math.random() * availableIds.length)];
       const wrongIds = getRandomPokemonIds(3, correctId);
 
       // Fetch all Pokemon data
@@ -86,13 +98,14 @@ export const usePokemonQuiz = () => {
         currentPokemon: correctPokemon,
         options: shuffledOptions,
         isLoading: false,
+        usedPokemonIds: [...prev.usedPokemonIds, correctId],
       }));
     } catch (error) {
       console.error('Failed to load Pokemon:', error);
       // Retry on error
       setTimeout(loadNewQuestion, 1000);
     }
-  }, []);
+  }, [state.usedPokemonIds]);
 
   const submitAnswer = useCallback((answer: string) => {
     if (state.hasAnswered || !state.currentPokemon) return;
@@ -126,6 +139,7 @@ export const usePokemonQuiz = () => {
       hasAnswered: false,
       selectedAnswer: null,
       isCorrect: null,
+      usedPokemonIds: [],
     });
     loadNewQuestion();
   }, [loadNewQuestion]);
