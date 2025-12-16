@@ -19,7 +19,7 @@ interface QuizState {
   isCorrect: boolean | null;
 }
 
-const MAX_POKEMON_ID = 898; // Gen 1-8
+const MAX_POKEMON_ID = 151; // Original 151 (Gen 1)
 
 const getRandomPokemonIds = (count: number, exclude?: number): number[] => {
   const ids: number[] = [];
