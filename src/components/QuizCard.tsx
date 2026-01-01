@@ -5,9 +5,12 @@ import { QuizOptions } from './QuizOptions';
 import { ScoreDisplay } from './ScoreDisplay';
 import { usePokemonQuiz } from '@/hooks/usePokemonQuiz';
 import { ArrowRight, RotateCcw, Sparkles } from 'lucide-react';
+import { PlayerNameInput } from './PlayerNameInput';
 
 export const QuizCard = () => {
   const {
+    playerName,
+    setPlayerName,
     currentPokemon,
     options,
     score,
@@ -24,8 +27,20 @@ export const QuizCard = () => {
   } = usePokemonQuiz();
 
   useEffect(() => {
-    loadNewQuestion();
-  }, []);
+    if (playerName) {
+      loadNewQuestion();
+    }
+    // Only load question if name is set
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerName]);
+
+  if (!playerName) {
+    return (
+      <div className="w-full max-w-4xl mx-auto px-4">
+        <PlayerNameInput onSubmit={setPlayerName} />
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-4xl mx-auto px-4">
@@ -36,6 +51,7 @@ export const QuizCard = () => {
           totalQuestions={totalQuestions}
           streak={streak}
           bestStreak={bestStreak}
+          playerName={playerName}
         />
       </div>
 
@@ -47,12 +63,11 @@ export const QuizCard = () => {
             Who's That Pokémon?
           </h2>
           <p className="text-muted-foreground">
-            {hasAnswered 
-              ? isCorrect 
-                ? "That's correct! 🎉" 
-                : `It was ${currentPokemon?.name}!`
-              : "Guess the Pokémon from its silhouette!"
-            }
+            {(() => {
+              if (!hasAnswered) return "Guess the Pokémon from its silhouette!";
+              if (isCorrect) return "That's correct! 🎉";
+              return `It was ${currentPokemon?.name}!`;
+            })()}
           </p>
         </div>
 

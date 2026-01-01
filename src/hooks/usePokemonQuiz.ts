@@ -7,6 +7,7 @@ interface Pokemon {
 }
 
 interface QuizState {
+  playerName: string;
   currentPokemon: Pokemon | null;
   options: string[];
   score: number;
@@ -41,19 +42,34 @@ const formatPokemonName = (name: string): string => {
 };
 
 export const usePokemonQuiz = () => {
-  const [state, setState] = useState<QuizState>({
-    currentPokemon: null,
-    options: [],
-    score: 0,
-    streak: 0,
-    bestStreak: 0,
-    totalQuestions: 0,
-    isLoading: true,
-    hasAnswered: false,
-    selectedAnswer: null,
-    isCorrect: null,
-    usedPokemonIds: [],
+  const [state, setState] = useState<QuizState>(() => {
+    // Try to load from localStorage
+    const saved = localStorage.getItem('poke-pal-quiz:player');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {}
+    }
+    return {
+      playerName: '',
+      currentPokemon: null,
+      options: [],
+      score: 0,
+      streak: 0,
+      bestStreak: 0,
+      totalQuestions: 0,
+      isLoading: true,
+      hasAnswered: false,
+      selectedAnswer: null,
+      isCorrect: null,
+      usedPokemonIds: [],
+    };
   });
+
+  // Persist to localStorage on change
+  const persist = (next: QuizState) => {
+    localStorage.setItem('poke-pal-quiz:player', JSON.stringify(next));
+  };
 
   const fetchPokemon = async (id: number): Promise<Pokemon> => {
     const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
@@ -66,7 +82,11 @@ export const usePokemonQuiz = () => {
   };
 
   const loadNewQuestion = useCallback(async () => {
-    setState(prev => ({ ...prev, isLoading: true, hasAnswered: false, selectedAnswer: null, isCorrect: null }));
+    setState(prev => {
+      const next = { ...prev, isLoading: true, hasAnswered: false, selectedAnswer: null, isCorrect: null };
+      persist(next);
+      return next;
+    });
 
     try {
       // Get available Pokemon IDs (not yet used)
@@ -76,7 +96,11 @@ export const usePokemonQuiz = () => {
       // If all Pokemon have been used, reset the pool
       if (availableIds.length === 0) {
         availableIds = Array.from({ length: MAX_POKEMON_ID }, (_, i) => i + 1);
-        setState(prev => ({ ...prev, usedPokemonIds: [] }));
+        setState(prev => {
+          const next = { ...prev, usedPokemonIds: [] };
+          persist(next);
+          return next;
+        });
       }
 
       // Pick a random Pokemon from available ones
@@ -93,13 +117,17 @@ export const usePokemonQuiz = () => {
       const allOptions = [correctPokemon.name, ...wrongPokemon.map(p => p.name)];
       const shuffledOptions = allOptions.sort(() => Math.random() - 0.5);
 
-      setState(prev => ({
-        ...prev,
-        currentPokemon: correctPokemon,
-        options: shuffledOptions,
-        isLoading: false,
-        usedPokemonIds: [...prev.usedPokemonIds, correctId],
-      }));
+      setState(prev => {
+        const next = {
+          ...prev,
+          currentPokemon: correctPokemon,
+          options: shuffledOptions,
+          isLoading: false,
+          usedPokemonIds: [...prev.usedPokemonIds, correctId],
+        };
+        persist(next);
+        return next;
+      });
     } catch (error) {
       console.error('Failed to load Pokemon:', error);
       // Retry on error
@@ -114,7 +142,7 @@ export const usePokemonQuiz = () => {
 
     setState(prev => {
       const newStreak = isCorrect ? prev.streak + 1 : 0;
-      return {
+      const next = {
         ...prev,
         hasAnswered: true,
         selectedAnswer: answer,
@@ -124,30 +152,47 @@ export const usePokemonQuiz = () => {
         bestStreak: Math.max(prev.bestStreak, newStreak),
         totalQuestions: prev.totalQuestions + 1,
       };
+      persist(next);
+      return next;
     });
   }, [state.hasAnswered, state.currentPokemon]);
 
   const resetQuiz = useCallback(() => {
-    setState({
-      currentPokemon: null,
-      options: [],
-      score: 0,
-      streak: 0,
-      bestStreak: 0,
-      totalQuestions: 0,
-      isLoading: true,
-      hasAnswered: false,
-      selectedAnswer: null,
-      isCorrect: null,
-      usedPokemonIds: [],
+    setState(prev => {
+      const next = {
+        ...prev,
+        currentPokemon: null,
+        options: [],
+        score: 0,
+        streak: 0,
+        bestStreak: 0,
+        totalQuestions: 0,
+        isLoading: true,
+        hasAnswered: false,
+        selectedAnswer: null,
+        isCorrect: null,
+        usedPokemonIds: [],
+      };
+      persist(next);
+      return next;
     });
     loadNewQuestion();
   }, [loadNewQuestion]);
+
+  // Set player name
+  const setPlayerName = useCallback((name: string) => {
+    setState(prev => {
+      const next = { ...prev, playerName: name };
+      persist(next);
+      return next;
+    });
+  }, []);
 
   return {
     ...state,
     loadNewQuestion,
     submitAnswer,
     resetQuiz,
+    setPlayerName,
   };
 };
