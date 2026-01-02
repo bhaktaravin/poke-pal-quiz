@@ -107,13 +107,36 @@ export const QuizCard = () => {
     <div className="w-full max-w-4xl mx-auto px-4">
       {/* Score Display */}
       <div className="mb-8">
-        <ScoreDisplay
-          score={score}
-          totalQuestions={totalQuestions}
-          streak={streak}
-          bestStreak={bestStreak}
-          playerName={playerName}
-        />
+        {mode === '2p' ? (
+          <div className="flex flex-col md:flex-row items-center justify-center gap-6">
+            <div className={quizStarted ? (gameOver ? 'opacity-50' : (/* highlight current player */ 'ring-2 ring-primary')) : ''}>
+              <ScoreDisplay
+                score={state.player1.score}
+                totalQuestions={state.player1.totalQuestions}
+                streak={state.player1.streak}
+                bestStreak={state.player1.bestStreak}
+                playerName={state.player1.name ? `${state.player1.name}${state.currentPlayer === 1 && !gameOver ? ' (Your turn)' : ''}` : 'Player 1'}
+              />
+            </div>
+            <div className={quizStarted ? (gameOver ? 'opacity-50' : (/* highlight current player */ 'ring-2 ring-primary')) : ''}>
+              <ScoreDisplay
+                score={state.player2.score}
+                totalQuestions={state.player2.totalQuestions}
+                streak={state.player2.streak}
+                bestStreak={state.player2.bestStreak}
+                playerName={state.player2.name ? `${state.player2.name}${state.currentPlayer === 2 && !gameOver ? ' (Your turn)' : ''}` : 'Player 2'}
+              />
+            </div>
+          </div>
+        ) : (
+          <ScoreDisplay
+            score={score}
+            totalQuestions={totalQuestions}
+            streak={streak}
+            bestStreak={bestStreak}
+            playerName={playerName}
+          />
+        )}
       </div>
 
       {/* Main Quiz Card */}

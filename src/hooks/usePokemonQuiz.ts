@@ -9,20 +9,27 @@ interface Pokemon {
   sprite: string;
 }
 
-interface QuizState {
-  playerName: string;
-  currentPokemon: Pokemon | null;
-  options: string[];
+interface PlayerStats {
+  name: string;
   score: number;
   streak: number;
   bestStreak: number;
   totalQuestions: number;
+  gameOver: boolean;
+}
+
+interface QuizState {
+  mode: '1p' | '2p';
+  player1: PlayerStats;
+  player2: PlayerStats;
+  currentPlayer: 1 | 2;
+  currentPokemon: Pokemon | null;
+  options: string[];
   isLoading: boolean;
   hasAnswered: boolean;
   selectedAnswer: string | null;
   isCorrect: boolean | null;
   usedPokemonIds: number[];
-  gameOver: boolean;
 }
 
 const MAX_POKEMON_ID = 151; // Original 151 (Gen 1)
@@ -57,19 +64,17 @@ export const usePokemonQuiz = () => {
       } catch {}
     }
     const initial = {
-      playerName: '',
+      mode: '1p',
+      player1: { name: '', score: 0, streak: 0, bestStreak: 0, totalQuestions: 0, gameOver: false },
+      player2: { name: '', score: 0, streak: 0, bestStreak: 0, totalQuestions: 0, gameOver: false },
+      currentPlayer: 1,
       currentPokemon: null,
       options: [],
-      score: 0,
-      streak: 0,
-      bestStreak: 0,
-      totalQuestions: 0,
       isLoading: true,
       hasAnswered: false,
       selectedAnswer: null,
       isCorrect: null,
       usedPokemonIds: [],
-      gameOver: false,
     };
     console.log('Initial state:', initial);
     return initial;
@@ -156,53 +161,107 @@ export const usePokemonQuiz = () => {
     let prevState: QuizState | undefined;
     setState(prev => {
       prevState = prev;
-      if (prev.hasAnswered || !prev.currentPokemon || prev.gameOver) return prev;
+      if (prev.hasAnswered || !prev.currentPokemon) return prev;
       if (!answer || !prev.options.includes(answer)) {
         console.warn('submitAnswer blocked: invalid answer or options not ready');
         return prev;
       }
 
       const isCorrect = answer === prev.currentPokemon.name;
-      const newStreak = isCorrect ? prev.streak + 1 : 0;
-      const next = {
-        ...prev,
-        hasAnswered: true,
-        selectedAnswer: answer,
-        isCorrect,
-        score: isCorrect ? prev.score + 1 : prev.score,
-        streak: newStreak,
-        bestStreak: Math.max(prev.bestStreak, newStreak),
-        totalQuestions: prev.totalQuestions + 1,
-        gameOver: !isCorrect, // End game if wrong answer
-      };
+      let next = { ...prev, hasAnswered: true, selectedAnswer: answer, isCorrect };
+
+      // 2-player logic
+      if (prev.mode === '2p') {
+        const current = prev.currentPlayer;
+        const other = current === 1 ? 2 : 1;
+        const playerKey = current === 1 ? 'player1' : 'player2';
+        const player = prev[playerKey];
+        const newStreak = isCorrect ? player.streak + 1 : 0;
+        const updatedPlayer = {
+          ...player,
+          score: isCorrect ? player.score + 1 : player.score,
+          streak: newStreak,
+          bestStreak: Math.max(player.bestStreak, newStreak),
+          totalQuestions: player.totalQuestions + 1,
+          gameOver: !isCorrect,
+        };
+        next = {
+          ...next,
+          [playerKey]: updatedPlayer,
+          currentPlayer: !isCorrect ? other : current,
+        };
+        // If both players are out, set a global game over
+        if (!isCorrect && prev[other === 1 ? 'player1' : 'player2'].gameOver) {
+          next.gameOver = true;
+        }
+      } else {
+        // 1-player logic
+        const newStreak = isCorrect ? prev.streak + 1 : 0;
+        next = {
+          ...next,
+          score: isCorrect ? prev.score + 1 : prev.score,
+          streak: newStreak,
+          bestStreak: Math.max(prev.bestStreak, newStreak),
+          totalQuestions: prev.totalQuestions + 1,
+          gameOver: !isCorrect,
+        };
+      }
       persist(next);
       return next;
     });
 
     // Firestore write outside setState for visibility
-    if (prevState && !prevState.hasAnswered && prevState.currentPokemon && !prevState.gameOver && answer && prevState.options.includes(answer)) {
+    if (prevState && !prevState.hasAnswered && prevState.currentPokemon && answer && prevState.options.includes(answer)) {
       const isCorrect = answer === prevState.currentPokemon.name;
-      if (!isCorrect && prevState.playerName) {
-        console.log('Attempting to save score to Firestore...');
-        try {
-          await addDoc(collection(db, 'scores'), {
-            name: prevState.playerName,
-            score: prevState.score,
-            streak: prevState.streak,
-            totalQuestions: prevState.totalQuestions,
-            timestamp: new Date().toISOString(),
-          });
-          toast({
-            title: 'Score saved!',
-            description: `Your score was saved to the leaderboard.`,
-          });
-          console.log('Score saved to Firestore!');
-        } catch (e) {
-          toast({
-            title: 'Error saving score',
-            description: 'Could not save your score. Please try again.',
-          });
-          console.error('Error saving score to Firestore:', e);
+      if (prevState.mode === '2p') {
+        const current = prevState.currentPlayer;
+        const player = current === 1 ? prevState.player1 : prevState.player2;
+        if (!isCorrect && player.name) {
+          console.log('Attempting to save score to Firestore...');
+          try {
+            await addDoc(collection(db, 'scores'), {
+              name: player.name,
+              score: player.score,
+              streak: player.streak,
+              totalQuestions: player.totalQuestions,
+              timestamp: new Date().toISOString(),
+            });
+            toast({
+              title: 'Score saved!',
+              description: `Score for ${player.name} was saved to the leaderboard.`,
+            });
+            console.log('Score saved to Firestore!');
+          } catch (e) {
+            toast({
+              title: 'Error saving score',
+              description: 'Could not save your score. Please try again.',
+            });
+            console.error('Error saving score to Firestore:', e);
+          }
+        }
+      } else {
+        if (!isCorrect && prevState.playerName) {
+          console.log('Attempting to save score to Firestore...');
+          try {
+            await addDoc(collection(db, 'scores'), {
+              name: prevState.playerName,
+              score: prevState.score,
+              streak: prevState.streak,
+              totalQuestions: prevState.totalQuestions,
+              timestamp: new Date().toISOString(),
+            });
+            toast({
+              title: 'Score saved!',
+              description: `Your score was saved to the leaderboard.`,
+            });
+            console.log('Score saved to Firestore!');
+          } catch (e) {
+            toast({
+              title: 'Error saving score',
+              description: 'Could not save your score. Please try again.',
+            });
+            console.error('Error saving score to Firestore:', e);
+          }
         }
       }
     }
