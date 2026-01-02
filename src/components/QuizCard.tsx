@@ -6,30 +6,17 @@ import { ScoreDisplay } from './ScoreDisplay';
 import { usePokemonQuiz } from '@/hooks/usePokemonQuiz';
 import { ArrowRight, RotateCcw, Sparkles } from 'lucide-react';
 import { PlayerNameInput } from './PlayerNameInput';
-
 import { PlayerModeSelect } from './PlayerModeSelect';
 
 export const QuizCard = () => {
-  const [mode, setModeState] = useState<'1p' | '2p' | null>(null);
-  const [player2Name, setPlayer2Name] = useState('');
-
-  // Helper to reset player name and localStorage when mode changes
-  const setMode = (newMode: '1p' | '2p') => {
-    setModeState(newMode);
-    // Clear player name in state and localStorage
-    setPlayerName('');
-    setPlayer2Name('');
-    localStorage.removeItem('poke-pal-quiz:player');
-  };
+  const state = usePokemonQuiz();
   const {
-    playerName,
-    setPlayerName,
+    mode,
+    player1,
+    player2,
+    currentPlayer,
     currentPokemon,
     options,
-    score,
-    streak,
-    bestStreak,
-    totalQuestions,
     isLoading,
     hasAnswered,
     selectedAnswer,
@@ -38,66 +25,82 @@ export const QuizCard = () => {
     submitAnswer,
     resetQuiz,
     gameOver,
-  } = usePokemonQuiz();
+    setPlayerName,
+    quizStarted,
+    setQuizStarted,
+  } = state;
 
 
-  // Only load the first question after name(s) is set and not after every render
-  const [quizStarted, setQuizStarted] = useState(false);
-  useEffect(() => {
-    if (!quizStarted && playerName && (mode === '1p' || (mode === '2p' && player2Name))) {
-      loadNewQuestion();
-      setQuizStarted(true);
-    }
-  }, [quizStarted, playerName, player2Name, mode, loadNewQuestion]);
 
   // Reset quizStarted on reset
   const handleResetQuiz = useCallback(() => {
     setQuizStarted(false);
     resetQuiz();
-  }, [resetQuiz]);
+  }, [resetQuiz, setQuizStarted]);
 
   if (!mode) {
     return (
       <div className="w-full max-w-4xl mx-auto px-4">
-        <PlayerModeSelect mode={mode} setMode={setMode} />
+        <PlayerModeSelect mode={mode} setMode={state.setMode} />
       </div>
     );
   }
 
 
-  if (mode === '2p' && (!playerName || !player2Name)) {
+
+  if (mode === '2p' && (!player1.name || !player2.name)) {
     return (
       <div className="w-full max-w-4xl mx-auto px-4">
-        {!playerName && <PlayerNameInput key="p1" onSubmit={name => { setPlayerName(name); setQuizStarted(false); }} />}
-        {playerName && !player2Name && <PlayerNameInput key="p2" onSubmit={name => { setPlayer2Name(name); setQuizStarted(false); }} />}
+        {!player1.name && <PlayerNameInput key="p1" onSubmit={name => { setPlayerName(1, name); setQuizStarted(false); }} />}
+        {player1.name && !player2.name && <PlayerNameInput key="p2" onSubmit={name => { setPlayerName(2, name); setQuizStarted(false); }} />}
       </div>
     );
   }
 
-  if (mode === '1p' && !playerName) {
+  if (mode === '1p' && !player1.name) {
     return (
       <div className="w-full max-w-4xl mx-auto px-4">
-        <PlayerNameInput key={Date.now()} onSubmit={name => { setPlayerName(name); setQuizStarted(false); }} />
+        <PlayerNameInput onSubmit={name => { setPlayerName(1, name); setQuizStarted(false); }} />
       </div>
     );
   }
+
 
   if (gameOver) {
     return (
       <div className="w-full max-w-4xl mx-auto px-4">
         <div className="mb-8">
-          <ScoreDisplay
-            score={score}
-            totalQuestions={totalQuestions}
-            streak={streak}
-            bestStreak={bestStreak}
-            playerName={playerName}
-          />
+          {mode === '2p' ? (
+            <div className="flex flex-col md:flex-row items-center justify-center gap-6">
+              <ScoreDisplay
+                score={player1.score}
+                totalQuestions={player1.totalQuestions}
+                streak={player1.streak}
+                bestStreak={player1.bestStreak}
+                playerName={player1.name || 'Player 1'}
+              />
+              <ScoreDisplay
+                score={player2.score}
+                totalQuestions={player2.totalQuestions}
+                streak={player2.streak}
+                bestStreak={player2.bestStreak}
+                playerName={player2.name || 'Player 2'}
+              />
+            </div>
+          ) : (
+            <ScoreDisplay
+              score={player1.score}
+              totalQuestions={player1.totalQuestions}
+              streak={player1.streak}
+              bestStreak={player1.bestStreak}
+              playerName={player1.name}
+            />
+          )}
         </div>
         <div className="card-gradient rounded-3xl border border-border p-6 md:p-10 shadow-2xl flex flex-col items-center">
           <h2 className="text-3xl font-extrabold text-accent mb-4">Game Over!</h2>
           <p className="text-xl mb-6">Wrong! It was {currentPokemon?.name}!</p>
-          <Button onClick={resetQuiz} size="xl" className="glow-primary">Play Again</Button>
+          <Button onClick={handleResetQuiz} size="xl" className="glow-primary">Play Again</Button>
         </div>
       </div>
     );
@@ -109,32 +112,32 @@ export const QuizCard = () => {
       <div className="mb-8">
         {mode === '2p' ? (
           <div className="flex flex-col md:flex-row items-center justify-center gap-6">
-            <div className={quizStarted ? (gameOver ? 'opacity-50' : (/* highlight current player */ 'ring-2 ring-primary')) : ''}>
+            <div className={quizStarted ? (gameOver ? 'opacity-50' : (currentPlayer === 1 ? 'ring-2 ring-primary' : '')) : ''}>
               <ScoreDisplay
-                score={state.player1.score}
-                totalQuestions={state.player1.totalQuestions}
-                streak={state.player1.streak}
-                bestStreak={state.player1.bestStreak}
-                playerName={state.player1.name ? `${state.player1.name}${state.currentPlayer === 1 && !gameOver ? ' (Your turn)' : ''}` : 'Player 1'}
+                score={player1.score}
+                totalQuestions={player1.totalQuestions}
+                streak={player1.streak}
+                bestStreak={player1.bestStreak}
+                playerName={player1.name ? `${player1.name}${currentPlayer === 1 && !gameOver ? ' (Your turn)' : ''}` : 'Player 1'}
               />
             </div>
-            <div className={quizStarted ? (gameOver ? 'opacity-50' : (/* highlight current player */ 'ring-2 ring-primary')) : ''}>
+            <div className={quizStarted ? (gameOver ? 'opacity-50' : (currentPlayer === 2 ? 'ring-2 ring-primary' : '')) : ''}>
               <ScoreDisplay
-                score={state.player2.score}
-                totalQuestions={state.player2.totalQuestions}
-                streak={state.player2.streak}
-                bestStreak={state.player2.bestStreak}
-                playerName={state.player2.name ? `${state.player2.name}${state.currentPlayer === 2 && !gameOver ? ' (Your turn)' : ''}` : 'Player 2'}
+                score={player2.score}
+                totalQuestions={player2.totalQuestions}
+                streak={player2.streak}
+                bestStreak={player2.bestStreak}
+                playerName={player2.name ? `${player2.name}${currentPlayer === 2 && !gameOver ? ' (Your turn)' : ''}` : 'Player 2'}
               />
             </div>
           </div>
         ) : (
           <ScoreDisplay
-            score={score}
-            totalQuestions={totalQuestions}
-            streak={streak}
-            bestStreak={bestStreak}
-            playerName={playerName}
+            score={player1.score}
+            totalQuestions={player1.totalQuestions}
+            streak={player1.streak}
+            bestStreak={player1.bestStreak}
+            playerName={player1.name}
           />
         )}
       </div>
@@ -201,7 +204,7 @@ export const QuizCard = () => {
             </Button>
           )}
           
-          {totalQuestions > 0 && (
+          {(player1.totalQuestions > 0 || player2.totalQuestions > 0) && (
             <Button
               onClick={handleResetQuiz}
               variant="outline"
