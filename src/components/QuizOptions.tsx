@@ -5,7 +5,7 @@ interface QuizOptionsProps {
   correctAnswer: string;
   selectedAnswer: string | null;
   hasAnswered: boolean;
-  onSelect: (answer: string) => void;
+  onSelect: (answer: string) => Promise<void> | void;
 }
 
 export const QuizOptions = ({
@@ -14,7 +14,9 @@ export const QuizOptions = ({
   selectedAnswer,
   hasAnswered,
   onSelect,
-}: QuizOptionsProps) => {
+  isLoading,
+  gameOver,
+}: QuizOptionsProps & { isLoading?: boolean; gameOver?: boolean }) => {
   const getVariant = (option: string) => {
     if (!hasAnswered) {
       return selectedAnswer === option ? 'quizSelected' : 'quiz';
@@ -37,8 +39,12 @@ export const QuizOptions = ({
         <Button
           key={option}
           variant={getVariant(option)}
-          onClick={() => !hasAnswered && onSelect(option)}
-          disabled={hasAnswered && option !== correctAnswer && option !== selectedAnswer}
+          onClick={() => {
+            if (!hasAnswered && !isLoading && !gameOver && option) {
+              Promise.resolve(onSelect(option)).catch(console.error);
+            }
+          }}
+          disabled={hasAnswered && option !== correctAnswer && option !== selectedAnswer || isLoading || gameOver}
           className="transition-all duration-200"
           style={{ animationDelay: `${index * 50}ms` }}
         >

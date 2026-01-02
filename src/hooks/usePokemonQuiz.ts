@@ -1,4 +1,7 @@
 import { useState, useCallback } from 'react';
+import { collection, addDoc } from 'firebase/firestore';
+import { db } from '@/components/config/firestore';
+import { toast } from '@/hooks/use-toast';
 
 interface Pokemon {
   id: number;
@@ -19,6 +22,7 @@ interface QuizState {
   selectedAnswer: string | null;
   isCorrect: boolean | null;
   usedPokemonIds: number[];
+  gameOver: boolean;
 }
 
 const MAX_POKEMON_ID = 151; // Original 151 (Gen 1)
@@ -47,10 +51,12 @@ export const usePokemonQuiz = () => {
     const saved = localStorage.getItem('poke-pal-quiz:player');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const loaded = JSON.parse(saved);
+        console.log('Initial state from localStorage:', loaded);
+        return loaded;
       } catch {}
     }
-    return {
+    const initial = {
       playerName: '',
       currentPokemon: null,
       options: [],
@@ -63,7 +69,10 @@ export const usePokemonQuiz = () => {
       selectedAnswer: null,
       isCorrect: null,
       usedPokemonIds: [],
+      gameOver: false,
     };
+    console.log('Initial state:', initial);
+    return initial;
   });
 
   // Persist to localStorage on change
@@ -83,24 +92,26 @@ export const usePokemonQuiz = () => {
 
   const loadNewQuestion = useCallback(async () => {
     setState(prev => {
-      const next = { ...prev, isLoading: true, hasAnswered: false, selectedAnswer: null, isCorrect: null };
-      persist(next);
-      return next;
+      if (prev.gameOver) return prev; // Don't load new question if game is over
+      return { ...prev, isLoading: true, hasAnswered: false, selectedAnswer: null, isCorrect: null };
     });
 
     try {
+      // Use functional update to always get latest state
+      let usedIds: number[] = [];
+      setState(prev => {
+        usedIds = prev.usedPokemonIds;
+        return prev;
+      });
+
       // Get available Pokemon IDs (not yet used)
       let availableIds = Array.from({ length: MAX_POKEMON_ID }, (_, i) => i + 1)
-        .filter(id => !state.usedPokemonIds.includes(id));
-      
+        .filter(id => !usedIds.includes(id));
+
       // If all Pokemon have been used, reset the pool
       if (availableIds.length === 0) {
         availableIds = Array.from({ length: MAX_POKEMON_ID }, (_, i) => i + 1);
-        setState(prev => {
-          const next = { ...prev, usedPokemonIds: [] };
-          persist(next);
-          return next;
-        });
+        usedIds = [];
       }
 
       // Pick a random Pokemon from available ones
@@ -115,7 +126,7 @@ export const usePokemonQuiz = () => {
 
       // Shuffle options
       const allOptions = [correctPokemon.name, ...wrongPokemon.map(p => p.name)];
-      const shuffledOptions = allOptions.sort(() => Math.random() - 0.5);
+      const shuffledOptions = [...allOptions].sort(() => Math.random() - 0.5);
 
       setState(prev => {
         const next = {
@@ -123,8 +134,13 @@ export const usePokemonQuiz = () => {
           currentPokemon: correctPokemon,
           options: shuffledOptions,
           isLoading: false,
-          usedPokemonIds: [...prev.usedPokemonIds, correctId],
+          hasAnswered: false,
+          selectedAnswer: null,
+          isCorrect: null,
+          gameOver: false,
+          usedPokemonIds: [...usedIds, correctId],
         };
+        console.log('State after loading question:', next);
         persist(next);
         return next;
       });
@@ -133,14 +149,20 @@ export const usePokemonQuiz = () => {
       // Retry on error
       setTimeout(loadNewQuestion, 1000);
     }
-  }, [state.usedPokemonIds]);
+  }, []);
 
-  const submitAnswer = useCallback((answer: string) => {
-    if (state.hasAnswered || !state.currentPokemon) return;
-
-    const isCorrect = answer === state.currentPokemon.name;
-
+  const submitAnswer = useCallback(async (answer: string) => {
+    console.log('submitAnswer called with:', answer);
+    let prevState: QuizState | undefined;
     setState(prev => {
+      prevState = prev;
+      if (prev.hasAnswered || !prev.currentPokemon || prev.gameOver) return prev;
+      if (!answer || !prev.options.includes(answer)) {
+        console.warn('submitAnswer blocked: invalid answer or options not ready');
+        return prev;
+      }
+
+      const isCorrect = answer === prev.currentPokemon.name;
       const newStreak = isCorrect ? prev.streak + 1 : 0;
       const next = {
         ...prev,
@@ -151,16 +173,46 @@ export const usePokemonQuiz = () => {
         streak: newStreak,
         bestStreak: Math.max(prev.bestStreak, newStreak),
         totalQuestions: prev.totalQuestions + 1,
+        gameOver: !isCorrect, // End game if wrong answer
       };
       persist(next);
       return next;
     });
-  }, [state.hasAnswered, state.currentPokemon]);
+
+    // Firestore write outside setState for visibility
+    if (prevState && !prevState.hasAnswered && prevState.currentPokemon && !prevState.gameOver && answer && prevState.options.includes(answer)) {
+      const isCorrect = answer === prevState.currentPokemon.name;
+      if (!isCorrect && prevState.playerName) {
+        console.log('Attempting to save score to Firestore...');
+        try {
+          await addDoc(collection(db, 'scores'), {
+            name: prevState.playerName,
+            score: prevState.score,
+            streak: prevState.streak,
+            totalQuestions: prevState.totalQuestions,
+            timestamp: new Date().toISOString(),
+          });
+          toast({
+            title: 'Score saved!',
+            description: `Your score was saved to the leaderboard.`,
+          });
+          console.log('Score saved to Firestore!');
+        } catch (e) {
+          toast({
+            title: 'Error saving score',
+            description: 'Could not save your score. Please try again.',
+          });
+          console.error('Error saving score to Firestore:', e);
+        }
+      }
+    }
+  }, []);
 
   const resetQuiz = useCallback(() => {
     setState(prev => {
       const next = {
         ...prev,
+        playerName: '',
         currentPokemon: null,
         options: [],
         score: 0,
@@ -172,6 +224,7 @@ export const usePokemonQuiz = () => {
         selectedAnswer: null,
         isCorrect: null,
         usedPokemonIds: [],
+        gameOver: false,
       };
       persist(next);
       return next;
