@@ -34,7 +34,7 @@ export const QuizOptions = ({
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full max-w-2xl">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
       {options.map((option, index) => (
         <Button
           key={option}
@@ -45,13 +45,13 @@ export const QuizOptions = ({
             }
           }}
           disabled={hasAnswered && option !== correctAnswer && option !== selectedAnswer || isLoading || gameOver}
-          className="transition-all duration-200"
+          className="transition-all duration-200 hover:scale-105 h-auto py-4"
           style={{ animationDelay: `${index * 50}ms` }}
         >
-          <span className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-sm font-bold mr-3 shrink-0">
-            {String.fromCharCode(65 + index)}
+          <span className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-lg font-black mr-3 shrink-0">
+            {['🅰️', '🅱️', '©️', '🅳'][index] || String.fromCharCode(65 + index)}
           </span>
-          <span className="text-base font-semibold">{option}</span>
+          <span className="text-lg font-bold">{option}</span>
         </Button>
       ))}
     </div>

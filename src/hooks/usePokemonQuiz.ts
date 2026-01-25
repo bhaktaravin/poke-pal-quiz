@@ -30,9 +30,10 @@ interface QuizState {
   selectedAnswer: string | null;
   isCorrect: boolean | null;
   usedPokemonIds: number[];
+  errorMsg?: string;
 }
 
-const MAX_POKEMON_ID = 151; // Original 151 (Gen 1)
+const MAX_POKEMON_ID = 251; // Gen 1 + Gen 2
 
 const getRandomPokemonIds = (count: number, exclude?: number): number[] => {
   const ids: number[] = [];
@@ -86,18 +87,36 @@ export const usePokemonQuiz = () => {
   };
 
   const fetchPokemon = async (id: number): Promise<Pokemon> => {
-    const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
-    const data = await response.json();
-    return {
-      id: data.id,
-      name: formatPokemonName(data.name),
-      sprite: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
-    };
+    try {
+      const response = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
+      if (!response.ok) {
+        throw new Error(`Pokémon with ID ${id} not found.`);
+      }
+      const data = await response.json();
+      return {
+        id: data.id,
+        name: formatPokemonName(data.name),
+        sprite: data.sprites?.other?.['official-artwork']?.front_default || data.sprites?.front_default || '',
+      };
+    } catch (error) {
+      console.error(error);
+      return {
+        id,
+        name: `Unknown Pokémon (${id})`,
+        sprite: '',
+      };
+    }
   };
 
   const loadNewQuestion = useCallback(async () => {
     setState(prev => {
-      if (prev.gameOver) return prev; // Don't load new question if game is over
+      // Don't load new question if game is over for current player (1p) or both (2p)
+      if (
+        (prev.mode === '1p' && prev.player1.gameOver) ||
+        (prev.mode === '2p' && prev.player1.gameOver && prev.player2.gameOver)
+      ) {
+        return prev;
+      }
       return { ...prev, isLoading: true, hasAnswered: false, selectedAnswer: null, isCorrect: null };
     });
 
@@ -134,6 +153,10 @@ export const usePokemonQuiz = () => {
       const shuffledOptions = [...allOptions].sort(() => Math.random() - 0.5);
 
       setState(prev => {
+        let errorMsg = '';
+        if (!correctPokemon.sprite) {
+          errorMsg = `Pokémon with ID ${correctId} could not be loaded. Please check your MAX_POKEMON_ID.`;
+        }
         const next = {
           ...prev,
           currentPokemon: correctPokemon,
@@ -144,6 +167,7 @@ export const usePokemonQuiz = () => {
           isCorrect: null,
           gameOver: false,
           usedPokemonIds: [...usedIds, correctId],
+          errorMsg,
         };
         console.log('State after loading question:', next);
         persist(next);
@@ -190,20 +214,20 @@ export const usePokemonQuiz = () => {
           [playerKey]: updatedPlayer,
           currentPlayer: !isCorrect ? other : current,
         };
-        // If both players are out, set a global game over
-        if (!isCorrect && prev[other === 1 ? 'player1' : 'player2'].gameOver) {
-          next.gameOver = true;
-        }
+        // If both players are out, nothing to do, gameOver is computed from both players
       } else {
         // 1-player logic
-        const newStreak = isCorrect ? prev.streak + 1 : 0;
+        const newStreak = isCorrect ? prev.player1.streak + 1 : 0;
         next = {
           ...next,
-          score: isCorrect ? prev.score + 1 : prev.score,
-          streak: newStreak,
-          bestStreak: Math.max(prev.bestStreak, newStreak),
-          totalQuestions: prev.totalQuestions + 1,
-          gameOver: !isCorrect,
+          player1: {
+            ...prev.player1,
+            score: isCorrect ? prev.player1.score + 1 : prev.player1.score,
+            streak: newStreak,
+            bestStreak: Math.max(prev.player1.bestStreak, newStreak),
+            totalQuestions: prev.player1.totalQuestions + 1,
+            gameOver: !isCorrect,
+          },
         };
       }
       persist(next);
@@ -240,14 +264,14 @@ export const usePokemonQuiz = () => {
           }
         }
       } else {
-        if (!isCorrect && prevState.playerName) {
+        if (!isCorrect && prevState.player1.name) {
           console.log('Attempting to save score to Firestore...');
           try {
             await addDoc(collection(db, 'scores'), {
-              name: prevState.playerName,
-              score: prevState.score,
-              streak: prevState.streak,
-              totalQuestions: prevState.totalQuestions,
+              name: prevState.player1.name,
+              score: prevState.player1.score,
+              streak: prevState.player1.streak,
+              totalQuestions: prevState.player1.totalQuestions,
               timestamp: new Date().toISOString(),
             });
             toast({
@@ -271,19 +295,17 @@ export const usePokemonQuiz = () => {
     setState(prev => {
       const next = {
         ...prev,
-        playerName: '',
+        player1: { ...prev.player1, name: '', score: 0, streak: 0, bestStreak: 0, totalQuestions: 0, gameOver: false },
+        player2: { ...prev.player2, name: '', score: 0, streak: 0, bestStreak: 0, totalQuestions: 0, gameOver: false },
+        currentPlayer: 1,
         currentPokemon: null,
         options: [],
-        score: 0,
-        streak: 0,
-        bestStreak: 0,
-        totalQuestions: 0,
         isLoading: true,
         hasAnswered: false,
         selectedAnswer: null,
         isCorrect: null,
         usedPokemonIds: [],
-        gameOver: false,
+        errorMsg: '',
       };
       persist(next);
       return next;
@@ -294,7 +316,23 @@ export const usePokemonQuiz = () => {
   // Set player name
   const setPlayerName = useCallback((name: string) => {
     setState(prev => {
-      const next = { ...prev, playerName: name };
+      if (prev.mode === '2p') {
+        if (prev.player1.name) {
+          if (prev.player2.name) {
+            const next = { ...prev, player1: { ...prev.player1, name } };
+            persist(next);
+            return next;
+          }
+          const next = { ...prev, player2: { ...prev.player2, name } };
+          persist(next);
+          return next;
+        }
+        const next = { ...prev, player1: { ...prev.player1, name } };
+        persist(next);
+        return next;
+      }
+
+      const next = { ...prev, player1: { ...prev.player1, name } };
       persist(next);
       return next;
     });
