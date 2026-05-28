@@ -1,10 +1,12 @@
 import { Trophy, Target, Sparkles, Star } from 'lucide-react';
+import { HeartsDisplay } from './HeartsDisplay';
 
 interface ScoreDisplayProps {
   score: number;
   totalQuestions: number;
   streak: number;
   bestStreak: number;
+  hearts: number;
   playerName?: string;
 }
 
@@ -23,7 +25,7 @@ const getScoreTitle = (score: number) => {
   return { title: 'Trainer', emoji: '🎮' };
 };
 
-export const ScoreDisplay = ({ score, totalQuestions, streak, bestStreak, playerName }: ScoreDisplayProps) => {
+export const ScoreDisplay = ({ score, totalQuestions, streak, bestStreak, hearts, playerName }: ScoreDisplayProps) => {
   const accuracy = totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
   const { title, emoji } = getScoreTitle(score);
 
@@ -41,6 +43,7 @@ export const ScoreDisplay = ({ score, totalQuestions, streak, bestStreak, player
           </div>
         </div>
       )}
+      <HeartsDisplay hearts={hearts} />
       <div className="flex flex-wrap justify-center gap-3 md:gap-4">
         {/* Score */}
         <div className="flex items-center gap-2 px-4 py-2 rounded-full card-gradient border border-primary/30 shadow-lg">

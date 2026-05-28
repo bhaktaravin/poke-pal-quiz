@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { PokemonImage } from './PokemonImage';
 import { QuizOptions } from './QuizOptions';
 import { ScoreDisplay } from './ScoreDisplay';
-import { usePokemonQuiz } from '@/hooks/usePokemonQuiz';
+import { usePokemonQuiz, MAX_HEARTS } from '@/hooks/usePokemonQuiz';
 import { ArrowRight, RotateCcw, Sparkles, Star, PartyPopper } from 'lucide-react';
 import { PlayerNameInput } from './PlayerNameInput';
 import { PlayerModeSelect } from './PlayerModeSelect';
@@ -28,6 +28,17 @@ const wrongMessages = [
   "🌈 Keep going! You're doing great!",
   "⭐ Almost! You're getting better!",
   "🎮 Good effort! Try again!",
+];
+
+const lostHeartMessages = [
+  "💛 You lost a heart — but you can keep going!",
+  "💖 Oops! One heart gone — you've still got more!",
+  "🌟 Don't worry! Every trainer makes mistakes!",
+];
+
+const lastHeartMessages = [
+  "💔 Careful! That's your last heart!",
+  "⚠️ One heart left — you can do this!",
 ];
 
 const streakMessages: Record<number, string> = {
@@ -70,6 +81,7 @@ export const QuizCard = () => {
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const initialLoadDone = useRef(false);
   const prevAnsweredRef = useRef(false);
+  const prevHeartsRef = useRef({ p1: player1.hearts, p2: player2.hearts });
 
   useEffect(() => {
     if (!quizStarted || initialLoadDone.current) return;
@@ -97,18 +109,33 @@ export const QuizCard = () => {
         const streakMsg = streakMessages[currentStreak];
         setFeedbackMessage(streakMsg || getRandomMessage(correctMessages));
       } else {
-        fireGameOverConfetti();
-        setFeedbackMessage(getRandomMessage(wrongMessages));
+        const answeredPlayer =
+          mode === '2p' && player1.hearts < prevHeartsRef.current.p1
+            ? player1
+            : mode === '2p' && player2.hearts < prevHeartsRef.current.p2
+              ? player2
+              : player1;
+
+        if (answeredPlayer.gameOver) {
+          fireGameOverConfetti();
+          setFeedbackMessage(getRandomMessage(wrongMessages));
+        } else if (answeredPlayer.hearts === 1) {
+          setFeedbackMessage(getRandomMessage(lastHeartMessages));
+        } else {
+          setFeedbackMessage(getRandomMessage(lostHeartMessages));
+        }
       }
     }
     prevAnsweredRef.current = hasAnswered;
-  }, [hasAnswered, isCorrect, mode, currentPlayer, player1.streak, player2.streak]);
+    prevHeartsRef.current = { p1: player1.hearts, p2: player2.hearts };
+  }, [hasAnswered, isCorrect, mode, currentPlayer, player1, player2]);
 
   // Reset quizStarted on reset
   const handleResetQuiz = useCallback(() => {
     setQuizStarted(false);
     initialLoadDone.current = false;
     setFeedbackMessage('');
+    prevHeartsRef.current = { p1: MAX_HEARTS, p2: MAX_HEARTS };
     resetQuiz();
   }, [resetQuiz]);
 
@@ -183,6 +210,7 @@ export const QuizCard = () => {
                 totalQuestions={player1.totalQuestions}
                 streak={player1.streak}
                 bestStreak={player1.bestStreak}
+                hearts={player1.hearts}
                 playerName={player1.name || 'Player 1'}
               />
               <ScoreDisplay
@@ -190,6 +218,7 @@ export const QuizCard = () => {
                 totalQuestions={player2.totalQuestions}
                 streak={player2.streak}
                 bestStreak={player2.bestStreak}
+                hearts={player2.hearts}
                 playerName={player2.name || 'Player 2'}
               />
             </div>
@@ -199,6 +228,7 @@ export const QuizCard = () => {
               totalQuestions={player1.totalQuestions}
               streak={player1.streak}
               bestStreak={player1.bestStreak}
+              hearts={player1.hearts}
               playerName={player1.name}
             />
           )}
@@ -207,7 +237,7 @@ export const QuizCard = () => {
           {/* Fun game over header */}
           <div className="flex items-center gap-3 mb-4">
             <PartyPopper className="w-8 h-8 text-primary animate-bounce" />
-            <h2 className="text-3xl font-extrabold text-accent">Game Over!</h2>
+            <h2 className="text-3xl font-extrabold text-accent">Out of Hearts!</h2>
             <PartyPopper className="w-8 h-8 text-primary animate-bounce" />
           </div>
           
@@ -292,6 +322,7 @@ export const QuizCard = () => {
                     totalQuestions={player.totalQuestions}
                     streak={player.streak}
                     bestStreak={player.bestStreak}
+                    hearts={player.hearts}
                     playerName={displayName}
                   />
                 </div>
@@ -304,6 +335,7 @@ export const QuizCard = () => {
             totalQuestions={player1.totalQuestions}
             streak={player1.streak}
             bestStreak={player1.bestStreak}
+            hearts={player1.hearts}
             playerName={player1.name}
           />
         )}

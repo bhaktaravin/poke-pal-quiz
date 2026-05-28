@@ -69,7 +69,7 @@ export const PlayerNameInput = ({ onSubmit, initialName = '', onStart, playerNum
         </div>
 
         <p className="text-muted-foreground text-sm">
-          ✨ Your score will be saved to the leaderboard! ✨
+          💛 You get 3 hearts — wrong guesses cost one heart! ✨
         </p>
       </form>
     </div>

@@ -9,14 +9,40 @@ interface Pokemon {
   sprite: string;
 }
 
+export const MAX_HEARTS = 3;
+
 interface PlayerStats {
   name: string;
   score: number;
   streak: number;
   bestStreak: number;
   totalQuestions: number;
+  hearts: number;
   gameOver: boolean;
 }
+
+const createInitialPlayer = (): PlayerStats => ({
+  name: '',
+  score: 0,
+  streak: 0,
+  bestStreak: 0,
+  totalQuestions: 0,
+  hearts: MAX_HEARTS,
+  gameOver: false,
+});
+
+const normalizePlayer = (player: Partial<PlayerStats> | undefined): PlayerStats => ({
+  ...createInitialPlayer(),
+  ...player,
+  hearts: player?.hearts ?? MAX_HEARTS,
+});
+
+const getActivePlayerAfterWrong = (prev: QuizState, current: 1 | 2): 1 | 2 => {
+  const other: 1 | 2 = current === 1 ? 2 : 1;
+  const otherPlayer = other === 1 ? prev.player1 : prev.player2;
+  if (!otherPlayer.gameOver) return other;
+  return current;
+};
 
 interface QuizState {
   mode: '1p' | '2p';
@@ -60,14 +86,17 @@ export const usePokemonQuiz = () => {
     if (saved) {
       try {
         const loaded = JSON.parse(saved);
-        console.log('Initial state from localStorage:', loaded);
-        return loaded;
+        return {
+          ...loaded,
+          player1: normalizePlayer(loaded.player1),
+          player2: normalizePlayer(loaded.player2),
+        };
       } catch {}
     }
     const initial = {
-      mode: '1p',
-      player1: { name: '', score: 0, streak: 0, bestStreak: 0, totalQuestions: 0, gameOver: false },
-      player2: { name: '', score: 0, streak: 0, bestStreak: 0, totalQuestions: 0, gameOver: false },
+      mode: '1p' as const,
+      player1: createInitialPlayer(),
+      player2: createInitialPlayer(),
       currentPlayer: 1,
       currentPokemon: null,
       options: [],
@@ -201,23 +230,25 @@ export const usePokemonQuiz = () => {
         const playerKey = current === 1 ? 'player1' : 'player2';
         const player = prev[playerKey];
         const newStreak = isCorrect ? player.streak + 1 : 0;
+        const newHearts = isCorrect ? player.hearts : Math.max(0, player.hearts - 1);
         const updatedPlayer = {
           ...player,
           score: isCorrect ? player.score + 1 : player.score,
           streak: newStreak,
           bestStreak: Math.max(player.bestStreak, newStreak),
           totalQuestions: player.totalQuestions + 1,
-          gameOver: !isCorrect,
+          hearts: newHearts,
+          gameOver: !isCorrect && newHearts === 0,
         };
         next = {
           ...next,
           [playerKey]: updatedPlayer,
-          currentPlayer: !isCorrect ? other : current,
+          currentPlayer: !isCorrect ? getActivePlayerAfterWrong(prev, current) : current,
         };
-        // If both players are out, nothing to do, gameOver is computed from both players
       } else {
         // 1-player logic
         const newStreak = isCorrect ? prev.player1.streak + 1 : 0;
+        const newHearts = isCorrect ? prev.player1.hearts : Math.max(0, prev.player1.hearts - 1);
         next = {
           ...next,
           player1: {
@@ -226,7 +257,8 @@ export const usePokemonQuiz = () => {
             streak: newStreak,
             bestStreak: Math.max(prev.player1.bestStreak, newStreak),
             totalQuestions: prev.player1.totalQuestions + 1,
-            gameOver: !isCorrect,
+            hearts: newHearts,
+            gameOver: !isCorrect && newHearts === 0,
           },
         };
       }
@@ -234,14 +266,13 @@ export const usePokemonQuiz = () => {
       return next;
     });
 
-    // Firestore write outside setState for visibility
+    // Save to leaderboard only when a player runs out of hearts
     if (prevState && !prevState.hasAnswered && prevState.currentPokemon && answer && prevState.options.includes(answer)) {
       const isCorrect = answer === prevState.currentPokemon.name;
-      if (prevState.mode === '2p') {
-        const current = prevState.currentPlayer;
-        const player = current === 1 ? prevState.player1 : prevState.player2;
-        if (!isCorrect && player.name) {
-          console.log('Attempting to save score to Firestore...');
+      if (!isCorrect) {
+        const saveScore = async (player: PlayerStats, label: string) => {
+          const newHearts = Math.max(0, player.hearts - 1);
+          if (newHearts > 0 || !player.name) return;
           try {
             await addDoc(collection(db, 'scores'), {
               name: player.name,
@@ -252,9 +283,8 @@ export const usePokemonQuiz = () => {
             });
             toast({
               title: 'Score saved!',
-              description: `Score for ${player.name} was saved to the leaderboard.`,
+              description: label,
             });
-            console.log('Score saved to Firestore!');
           } catch (e) {
             toast({
               title: 'Error saving score',
@@ -262,30 +292,14 @@ export const usePokemonQuiz = () => {
             });
             console.error('Error saving score to Firestore:', e);
           }
-        }
-      } else {
-        if (!isCorrect && prevState.player1.name) {
-          console.log('Attempting to save score to Firestore...');
-          try {
-            await addDoc(collection(db, 'scores'), {
-              name: prevState.player1.name,
-              score: prevState.player1.score,
-              streak: prevState.player1.streak,
-              totalQuestions: prevState.player1.totalQuestions,
-              timestamp: new Date().toISOString(),
-            });
-            toast({
-              title: 'Score saved!',
-              description: `Your score was saved to the leaderboard.`,
-            });
-            console.log('Score saved to Firestore!');
-          } catch (e) {
-            toast({
-              title: 'Error saving score',
-              description: 'Could not save your score. Please try again.',
-            });
-            console.error('Error saving score to Firestore:', e);
-          }
+        };
+
+        if (prevState.mode === '2p') {
+          const current = prevState.currentPlayer;
+          const player = current === 1 ? prevState.player1 : prevState.player2;
+          await saveScore(player, `Score for ${player.name} was saved to the leaderboard.`);
+        } else {
+          await saveScore(prevState.player1, 'Your score was saved to the leaderboard.');
         }
       }
     }
@@ -295,8 +309,8 @@ export const usePokemonQuiz = () => {
     setState(prev => {
       const next = {
         ...prev,
-        player1: { ...prev.player1, name: '', score: 0, streak: 0, bestStreak: 0, totalQuestions: 0, gameOver: false },
-        player2: { ...prev.player2, name: '', score: 0, streak: 0, bestStreak: 0, totalQuestions: 0, gameOver: false },
+        player1: { ...createInitialPlayer(), name: prev.player1.name },
+        player2: { ...createInitialPlayer(), name: prev.player2.name },
         currentPlayer: 1,
         currentPokemon: null,
         options: [],
