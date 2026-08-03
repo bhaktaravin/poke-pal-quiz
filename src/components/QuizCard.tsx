@@ -132,12 +132,18 @@ export const QuizCard = () => {
 
   // Reset quizStarted on reset
   const handleResetQuiz = useCallback(() => {
-    setQuizStarted(false);
-    initialLoadDone.current = false;
+    // resetQuiz() preserves player name(s), so the name-entry screen (the only
+    // place that flips quizStarted back to true) won't show again. Keep
+    // quizStarted true here so the answer options render once resetQuiz's own
+    // loadNewQuestion() call resolves, instead of getting stuck with a loaded
+    // question but no visible way to answer it.
+    const namesReady = mode === '2p' ? !!(player1.name && player2.name) : !!player1.name;
+    setQuizStarted(namesReady);
+    initialLoadDone.current = namesReady;
     setFeedbackMessage('');
     prevHeartsRef.current = { p1: MAX_HEARTS, p2: MAX_HEARTS };
     resetQuiz();
-  }, [resetQuiz]);
+  }, [resetQuiz, mode, player1.name, player2.name]);
 
   if (!mode) {
     return (
